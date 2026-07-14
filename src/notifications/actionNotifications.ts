@@ -29,6 +29,7 @@ export async function showActionTimerNotification({ taskTitle, actionText }: Act
     : taskTitle
       ? `Check in on ${taskTitle}.`
       : "Check in with the next step.";
+  const iconUrl = new URL(`${import.meta.env.BASE_URL}icon.svg`, window.location.href).toString();
 
   if ("serviceWorker" in navigator) {
     try {
@@ -36,8 +37,8 @@ export async function showActionTimerNotification({ taskTitle, actionText }: Act
       await registration.showNotification(title, {
         body,
         tag: "next-step-action-timer",
-        icon: "/icon.svg",
-        badge: "/icon.svg"
+        icon: iconUrl,
+        badge: iconUrl
       });
       return true;
     } catch {
@@ -48,7 +49,7 @@ export async function showActionTimerNotification({ taskTitle, actionText }: Act
   new Notification(title, {
     body,
     tag: "next-step-action-timer",
-    icon: "/icon.svg"
+    icon: iconUrl
   });
   return true;
 }
