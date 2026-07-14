@@ -70,6 +70,7 @@ const rejectReasons: Choice<string>[] = [
 
 export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain, onExit }: SessionScreenProps) {
   const selectedTask = tasks.find((task) => task.id === session.selectedTaskId);
+  const timerLocked = hasRunningActionTimer(session);
   const [urgentTitle, setUrgentTitle] = useState("");
   const [blockerText, setBlockerText] = useState("");
   const [rejectPrompt, setRejectPrompt] = useState(false);
@@ -228,7 +229,7 @@ export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain,
   if (session.state === "ACTION_READY" || session.state === "ACTION_ACTIVE") {
     if (pausePrompt) {
       return (
-        <Question question="What would help you restart this later?" onExit={onExit}>
+        <Question question="What would help you restart this later?" onExit={onExit} showExit={!timerLocked}>
           <textarea value={pauseNote} onChange={(event) => setPauseNote(event.target.value)} placeholder="Optional" />
           <Button variant="primary" onClick={() => onEvent({ type: "PAUSE", note: pauseNote })}>Save my place</Button>
         </Question>
@@ -244,9 +245,11 @@ export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain,
           <p className="task-label">NEXT ACTION</p>
           <div className="next-action">{session.currentAction ?? "Open or pick up the first item."}</div>
           <TimerControl
-            minutes={settings.defaultTimerMinutes}
-            label={`Start ${settings.defaultTimerMinutes}-minute timer`}
-            sound={settings.sound}
+            key={`${session.id}-${session.currentStepId ?? session.startLadderIndex ?? session.currentAction ?? "action"}`}
+            seconds={settings.defaultTimerSeconds}
+            startedAt={session.actionTimerStartedAt}
+            endsAt={session.actionTimerEndsAt}
+            onStarted={(startedAt, endsAt) => onEvent({ type: "ACTION_TIMER_STARTED", startedAt, endsAt })}
           />
           {session.startLadderIndex !== undefined ? (
             <Button
@@ -260,9 +263,11 @@ export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain,
           <div className="action-buttons">
             <Button variant="primary" onClick={() => onEvent({ type: "DONE_ACTION" })}>Done</Button>
             <Button variant="secondary" onClick={() => onEvent({ type: "STUCK" })}>I am stuck</Button>
-            <Button variant="quiet" icon={<Pause size={18} />} onClick={() => setPausePrompt(true)}>Pause this</Button>
+            {session.actionTimerExpiredAt ? (
+              <Button variant="quiet" icon={<Pause size={18} />} onClick={() => setPausePrompt(true)}>Pause this</Button>
+            ) : null}
           </div>
-          <Button variant="quiet" icon={<DoorOpen size={18} />} onClick={onExit}>Exit session</Button>
+          {!timerLocked ? <Button variant="quiet" icon={<DoorOpen size={18} />} onClick={onExit}>Exit session</Button> : null}
         </article>
       </ScreenShell>
     );
@@ -271,7 +276,7 @@ export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain,
   if (session.state === "STUCK_REASON") {
     if (pendingStuck === "missingNeed") {
       return (
-        <Question question="What is missing?" onExit={onExit}>
+        <Question question="What is missing?" onExit={onExit} showExit={!timerLocked}>
           <ChoiceGroup
             choices={[
               { label: "An item", value: "item" },
@@ -291,7 +296,7 @@ export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain,
 
     if (pendingStuck === "discoveredTask") {
       return (
-        <Question question="Capture it, then come back here." onExit={onExit}>
+        <Question question="Capture it, then come back here." onExit={onExit} showExit={!timerLocked}>
           <input value={discoveredTitle} onChange={(event) => setDiscoveredTitle(event.target.value)} placeholder="The other task" />
           <label className="check-row">
             <input
@@ -313,7 +318,7 @@ export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain,
     }
 
     return (
-      <Question question="What stopped you?" onExit={onExit}>
+      <Question question="What stopped you?" onExit={onExit} showExit={!timerLocked}>
         <ChoiceGroup
           choices={stuckChoices}
           onChoose={(reason) => {
@@ -338,7 +343,7 @@ export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain,
           <div className="action-buttons">
             <Button variant="primary" onClick={() => onEvent({ type: "RESUME_ACTION" })}>Continue now</Button>
             <Button variant="secondary" onClick={() => onEvent({ type: "STUCK" })}>Still stuck</Button>
-            <Button variant="quiet" onClick={() => setPausePrompt(true)}>Pause it</Button>
+            {session.actionTimerExpiredAt ? <Button variant="quiet" onClick={() => setPausePrompt(true)}>Pause it</Button> : null}
           </div>
         </article>
       </ScreenShell>
@@ -415,13 +420,29 @@ export function SessionScreen({ session, tasks, settings, onEvent, onStartAgain,
   );
 }
 
-function Question({ question, children, onExit }: { question: string; children: ReactNode; onExit: () => void }) {
+function Question({
+  question,
+  children,
+  onExit,
+  showExit = true
+}: {
+  question: string;
+  children: ReactNode;
+  onExit: () => void;
+  showExit?: boolean;
+}) {
   return (
-    <ScreenShell compact actions={<Button variant="quiet" onClick={onExit}>Exit</Button>}>
+    <ScreenShell compact actions={showExit ? <Button variant="quiet" onClick={onExit}>Exit</Button> : undefined}>
       <div className="question-card">
         <h1>{question}</h1>
         {children}
       </div>
     </ScreenShell>
   );
+}
+
+function hasRunningActionTimer(session: Session) {
+  if (!session.actionTimerEndsAt || session.actionTimerExpiredAt) return false;
+  const endTime = new Date(session.actionTimerEndsAt).getTime();
+  return !Number.isNaN(endTime) && endTime > Date.now();
 }

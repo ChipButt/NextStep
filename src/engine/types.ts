@@ -184,6 +184,10 @@ export type Session = {
   startedAt: string;
   updatedAt: string;
   startLadderIndex?: number;
+  actionTimerStartedAt?: string;
+  actionTimerEndsAt?: string;
+  actionTimerExpiredAt?: string;
+  actionTimerNotificationSentAt?: string;
   lastStuckReason?: StuckReason;
   lastSelection?: SelectionDebug;
   pauseNote?: string;
@@ -198,7 +202,8 @@ export type Settings = {
   sound: boolean;
   voiceMode: boolean;
   spokenPrompts: boolean;
-  defaultTimerMinutes: 3 | 5 | 10 | 15;
+  actionNotifications: boolean;
+  defaultTimerSeconds: number;
   showAcknowledgements: boolean;
   debugMode: boolean;
   firstLaunchDemoSeen: boolean;
@@ -227,6 +232,9 @@ export type SessionEvent =
   | { type: "STUCK" }
   | { type: "STUCK_REASON"; reason: StuckReason; details?: string; missingType?: string }
   | { type: "RESUME_ACTION" }
+  | { type: "ACTION_TIMER_STARTED"; startedAt: string; endsAt: string }
+  | { type: "ACTION_TIMER_EXPIRED"; expiredAt: string }
+  | { type: "ACTION_TIMER_NOTIFICATION_SENT"; sentAt: string }
   | { type: "PAUSE"; note?: string }
   | { type: "CAPTURE_DISCOVERED"; title: string; urgent?: boolean }
   | { type: "RESUME_PAUSED"; taskId: string };

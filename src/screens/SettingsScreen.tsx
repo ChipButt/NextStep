@@ -3,7 +3,12 @@ import { Download, RotateCcw, Upload } from "lucide-react";
 import { Button } from "../components/Button";
 import { ScreenShell } from "../components/ScreenShell";
 import type { AppData, Settings } from "../engine/types";
-import { exportAppData, importAppData } from "../storage/localStore";
+import {
+  getActionNotificationPermission,
+  requestActionNotificationPermission,
+  supportsActionNotifications
+} from "../notifications/actionNotifications";
+import { exportAppData, importAppData, MAX_TIMER_SECONDS, MIN_TIMER_SECONDS, TIMER_STEP_SECONDS } from "../storage/localStore";
 
 type SettingsScreenProps = {
   data: AppData;
@@ -13,8 +18,14 @@ type SettingsScreenProps = {
   onLoadSamples: () => void;
 };
 
+const timerOptions = Array.from(
+  { length: Math.floor((MAX_TIMER_SECONDS - MIN_TIMER_SECONDS) / TIMER_STEP_SECONDS) + 1 },
+  (_, index) => MIN_TIMER_SECONDS + index * TIMER_STEP_SECONDS
+);
+
 export function SettingsScreen({ data, onSettingsChange, onReset, onImport, onLoadSamples }: SettingsScreenProps) {
   const [importText, setImportText] = useState("");
+  const [notificationPermission, setNotificationPermission] = useState(getActionNotificationPermission());
 
   function update(patch: Partial<Settings>) {
     onSettingsChange({ ...data.settings, ...patch });
@@ -44,18 +55,37 @@ export function SettingsScreen({ data, onSettingsChange, onReset, onImport, onLo
         <label>
           Default timer
           <select
-            value={data.settings.defaultTimerMinutes}
-            onChange={(event) => update({ defaultTimerMinutes: Number(event.target.value) as Settings["defaultTimerMinutes"] })}
+            value={data.settings.defaultTimerSeconds}
+            onChange={(event) => update({ defaultTimerSeconds: Number(event.target.value) })}
           >
-            <option value={3}>3 minutes</option>
-            <option value={5}>5 minutes</option>
-            <option value={10}>10 minutes</option>
-            <option value={15}>15 minutes</option>
+            {timerOptions.map((seconds) => (
+              <option key={seconds} value={seconds}>
+                {seconds} seconds
+              </option>
+            ))}
           </select>
         </label>
         <Toggle label="High contrast" checked={data.settings.highContrast} onChange={(highContrast) => update({ highContrast })} />
         <Toggle label="Reduced motion" checked={data.settings.reducedMotion} onChange={(reducedMotion) => update({ reducedMotion })} />
         <Toggle label="Sound" checked={data.settings.sound} onChange={(sound) => update({ sound })} />
+        <Toggle
+          label="Action timer notifications"
+          checked={data.settings.actionNotifications}
+          onChange={async (actionNotifications) => {
+            if (!actionNotifications) {
+              update({ actionNotifications: false });
+              return;
+            }
+            const granted = await requestActionNotificationPermission();
+            setNotificationPermission(getActionNotificationPermission());
+            update({ actionNotifications: granted });
+          }}
+        />
+        <p className="settings-note">
+          {supportsActionNotifications()
+            ? `Notification permission: ${notificationPermission}. Fully closed browsers may only catch up when reopened.`
+            : "This browser does not support local notifications."}
+        </p>
         <Toggle label="Voice mode" checked={data.settings.voiceMode} onChange={(voiceMode) => update({ voiceMode, spokenPrompts: voiceMode ? true : data.settings.spokenPrompts })} />
         <Toggle label="Spoken prompts" checked={data.settings.spokenPrompts} onChange={(spokenPrompts) => update({ spokenPrompts })} />
         <Toggle

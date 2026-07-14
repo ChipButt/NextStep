@@ -1,70 +1,66 @@
-import { useEffect, useState } from "react";
-import { Pause, Play, RotateCcw } from "lucide-react";
-import { Button } from "./Button";
+import { useEffect, useRef, useState } from "react";
+import { Clock3 } from "lucide-react";
 
 type TimerControlProps = {
-  minutes: number;
-  label?: string;
-  sound?: boolean;
+  seconds: number;
+  startedAt?: string;
+  endsAt?: string;
+  onStarted: (startedAt: string, endsAt: string) => void;
 };
 
-export function TimerControl({ minutes, label = "Start timer", sound = false }: TimerControlProps) {
-  const total = minutes * 60;
-  const [remaining, setRemaining] = useState(total);
-  const [running, setRunning] = useState(false);
+export function TimerControl({
+  seconds,
+  startedAt,
+  endsAt,
+  onStarted
+}: TimerControlProps) {
+  const [remaining, setRemaining] = useState(() => getRemainingSeconds(endsAt, seconds));
+  const startRequestedRef = useRef(false);
 
   useEffect(() => {
-    setRemaining(total);
-    setRunning(false);
-  }, [total]);
+    if (endsAt || startRequestedRef.current) return;
+    startRequestedRef.current = true;
+    const started = new Date();
+    const ends = new Date(started.getTime() + seconds * 1000);
+    onStarted(started.toISOString(), ends.toISOString());
+  }, [endsAt, onStarted, seconds]);
 
   useEffect(() => {
-    if (!running || remaining <= 0) return undefined;
-    const id = window.setInterval(() => setRemaining((value) => value - 1), 1000);
+    setRemaining(getRemainingSeconds(endsAt, seconds));
+    const id = window.setInterval(() => {
+      setRemaining(getRemainingSeconds(endsAt, seconds));
+    }, 1000);
     return () => window.clearInterval(id);
-  }, [running, remaining]);
+  }, [endsAt, seconds]);
 
-  useEffect(() => {
-    if (remaining === 0 && sound) playSoftTone();
-  }, [remaining, sound]);
-
-  const minutesLeft = Math.floor(remaining / 60);
-  const secondsLeft = String(remaining % 60).padStart(2, "0");
+  const hasEnded = remaining <= 0;
 
   return (
-    <div className="timer-control" aria-live="polite">
-      <Button
-        variant="quiet"
-        icon={running ? <Pause size={18} /> : <Play size={18} />}
-        onClick={() => setRunning((value) => !value)}
-      >
-        {running ? `${minutesLeft}:${secondsLeft}` : label}
-      </Button>
-      {remaining !== total ? (
-        <button className="icon-button" type="button" onClick={() => setRemaining(total)} aria-label="Reset timer">
-          <RotateCcw size={18} aria-hidden="true" />
-        </button>
-      ) : null}
+    <div className={hasEnded ? "timer-control timer-control-ended" : "timer-control"} aria-live="polite">
+      <div className="timer-readout">
+        <Clock3 size={18} aria-hidden="true" />
+        <span>{hasEnded ? "Timer ended" : formatSeconds(remaining)}</span>
+      </div>
+      <p className="timer-subtext">
+        Started automatically{startedAt ? ` at ${formatClock(startedAt)}` : ""}. Refreshing keeps this end time.
+      </p>
     </div>
   );
 }
 
-function playSoftTone() {
-  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) return;
-  const context = new AudioContextClass();
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-  oscillator.frequency.value = 528;
-  gain.gain.value = 0.035;
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start();
-  oscillator.stop(context.currentTime + 0.18);
+function getRemainingSeconds(endsAt: string | undefined, fallbackSeconds: number) {
+  if (!endsAt) return fallbackSeconds;
+  const endTime = new Date(endsAt).getTime();
+  if (Number.isNaN(endTime)) return fallbackSeconds;
+  return Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
 }
 
-declare global {
-  interface Window {
-    webkitAudioContext?: typeof AudioContext;
-  }
+function formatSeconds(seconds: number) {
+  return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+}
+
+function formatClock(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }

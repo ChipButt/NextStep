@@ -54,6 +54,10 @@ exit session
 
 If speech recognition is unavailable, use the **Type a voice command** field. Spoken prompts can also be enabled without continuous listening.
 
+Timers are shown in seconds. Default timer settings are available in 30-second increments from **30 seconds** through **900 seconds**. Action timers start automatically, cannot be paused or reset from the timer control, and keep their original end time through refreshes.
+
+If **Action timer notifications** are enabled in Settings and the browser grants permission, Next Step will show a local notification when an action timer ends while the browser still allows the app to run. A fully closed local-only PWA cannot guarantee a future push notification without a server push or native app layer; when reopened, Next Step catches up from the saved end time.
+
 ## Project Structure
 
 ```text

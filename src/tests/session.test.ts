@@ -61,4 +61,70 @@ describe("session state machine", () => {
     expect(result.session.selectedTaskId).toBe(result.tasks[1].id);
     expect(result.session.state).toBe("TASK_CONFIRMATION");
   });
+
+  it("stores an action timer end time and clears it when moving to the next action", () => {
+    const task = createTask({
+      title: "Complete form",
+      steps: ["Open the form.", "Fill in one field."]
+    });
+    const session = {
+      ...createSession(new Date("2026-07-14T09:00:00Z")),
+      state: "ACTION_READY" as const,
+      selectedTaskId: task.id,
+      currentStepId: task.steps[0].id,
+      currentAction: task.steps[0].text
+    };
+
+    const withTimer = transition(
+      session,
+      [task],
+      {
+        type: "ACTION_TIMER_STARTED",
+        startedAt: "2026-07-14T09:00:00.000Z",
+        endsAt: "2026-07-14T09:10:00.000Z"
+      },
+      new Date("2026-07-14T09:00:00Z")
+    );
+    const advanced = transition(withTimer.session, withTimer.tasks, { type: "DONE_ACTION" });
+
+    expect(withTimer.session.actionTimerEndsAt).toBe("2026-07-14T09:10:00.000Z");
+    expect(advanced.session.currentAction).toBe("Fill in one field.");
+    expect(advanced.session.actionTimerEndsAt).toBeUndefined();
+  });
+
+  it("keeps a running action timer through stuck support and blocks early pause", () => {
+    const task = createTask({ title: "Complete form" });
+    const session = {
+      ...createSession(new Date("2026-07-14T09:00:00Z")),
+      state: "ACTION_READY" as const,
+      selectedTaskId: task.id,
+      currentAction: "Open the form.",
+      actionTimerStartedAt: "2026-07-14T09:00:00.000Z",
+      actionTimerEndsAt: "2026-07-14T09:10:00.000Z"
+    };
+
+    const stuck = transition(session, [task], { type: "STUCK_REASON", reason: "stillCannotStart" }, new Date("2026-07-14T09:02:00Z"));
+    const paused = transition(stuck.session, stuck.tasks, { type: "PAUSE", note: "too soon" }, new Date("2026-07-14T09:03:00Z"));
+
+    expect(stuck.session.actionTimerEndsAt).toBe("2026-07-14T09:10:00.000Z");
+    expect(paused.session.state).toBe("STUCK_INTERVENTION");
+    expect(paused.historyRecord).toBeUndefined();
+  });
+
+  it("allows pause after the action timer deadline has passed", () => {
+    const task = createTask({ title: "Complete form" });
+    const session = {
+      ...createSession(new Date("2026-07-14T09:00:00Z")),
+      state: "ACTION_READY" as const,
+      selectedTaskId: task.id,
+      currentAction: "Open the form.",
+      actionTimerStartedAt: "2026-07-14T09:00:00.000Z",
+      actionTimerEndsAt: "2026-07-14T09:10:00.000Z"
+    };
+
+    const paused = transition(session, [task], { type: "PAUSE", note: "time elapsed" }, new Date("2026-07-14T09:11:00Z"));
+
+    expect(paused.session.state).toBe("TASK_PAUSED");
+    expect(paused.historyRecord?.result).toBe("paused");
+  });
 });

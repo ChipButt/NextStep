@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { BottomNav, type View } from "./components/BottomNav";
 import { DebugPanel } from "./components/DebugPanel";
 import { speak, VoicePanel } from "./components/VoicePanel";
@@ -8,6 +8,7 @@ import { createTask, touchTask } from "./engine/taskFactory";
 import type { AppData, SessionEvent, Settings, Task } from "./engine/types";
 import { createEmptyData, loadAppData, saveAppData } from "./storage/localStore";
 import { HistoryScreen } from "./screens/HistoryScreen";
+import { useActionTimerWatcher } from "./notifications/useActionTimerWatcher";
 import { SessionScreen } from "./screens/SessionScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { StartScreen } from "./screens/StartScreen";
@@ -27,7 +28,12 @@ export function App() {
     return !["WELCOME", "SESSION_COMPLETE"].includes(data.activeSession.state);
   }, [data.activeSession]);
 
-  function runEvent(event: SessionEvent) {
+  const selectedTask = useMemo(
+    () => data.tasks.find((task) => task.id === data.activeSession?.selectedTaskId),
+    [data.activeSession?.selectedTaskId, data.tasks]
+  );
+
+  const dispatchSessionEvent = useCallback((event: SessionEvent, returnToStart = true) => {
     setData((current) => {
       const session = current.activeSession ?? createSession();
       const result = transition(session, current.tasks, event);
@@ -38,7 +44,28 @@ export function App() {
         activeSession: result.session
       };
     });
-    setView("start");
+    if (returnToStart) setView("start");
+  }, []);
+
+  const handleActionTimerExpired = useCallback(
+    (expiredAt: string) => dispatchSessionEvent({ type: "ACTION_TIMER_EXPIRED", expiredAt }, false),
+    [dispatchSessionEvent]
+  );
+  const handleActionTimerNotificationSent = useCallback(
+    (sentAt: string) => dispatchSessionEvent({ type: "ACTION_TIMER_NOTIFICATION_SENT", sentAt }, false),
+    [dispatchSessionEvent]
+  );
+
+  useActionTimerWatcher({
+    session: data.activeSession,
+    settings: data.settings,
+    taskTitle: selectedTask?.title,
+    onExpired: handleActionTimerExpired,
+    onNotificationSent: handleActionTimerNotificationSent
+  });
+
+  function runEvent(event: SessionEvent) {
+    dispatchSessionEvent(event);
   }
 
   function startSession() {
@@ -50,7 +77,10 @@ export function App() {
   }
 
   function exitSession() {
-    setData((current) => ({ ...current, activeSession: undefined }));
+    setData((current) => {
+      if (hasRunningActionTimer(current.activeSession)) return current;
+      return { ...current, activeSession: undefined };
+    });
     setView("start");
   }
 
@@ -129,6 +159,7 @@ export function App() {
         startSession();
         return "Starting.";
       case "EXIT_SESSION":
+        if (hasRunningActionTimer(data.activeSession)) return "The action timer is still running.";
         exitSession();
         return "Session closed.";
       case "NAVIGATE":
@@ -222,4 +253,10 @@ export function App() {
       />
     </div>
   );
+}
+
+function hasRunningActionTimer(session: AppData["activeSession"]) {
+  if (!session?.actionTimerEndsAt || session.actionTimerExpiredAt) return false;
+  const endTime = new Date(session.actionTimerEndsAt).getTime();
+  return !Number.isNaN(endTime) && endTime > Date.now();
 }

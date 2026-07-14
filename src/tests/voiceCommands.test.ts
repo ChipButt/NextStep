@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createSession } from "../engine/decisionEngine";
 import { createTask } from "../engine/taskFactory";
-import { parseVoiceCommand } from "../voice/voiceCommands";
+import { getVoicePrompt, parseVoiceCommand } from "../voice/voiceCommands";
 
 describe("voice command parser", () => {
   it("adds a rough task from speech", () => {
@@ -56,5 +56,21 @@ describe("voice command parser", () => {
       type: "SESSION_EVENT",
       event: { type: "CAPTURE_DISCOVERED", title: "Buy stamps", urgent: false }
     });
+  });
+
+  it("keeps the stuck reason voice prompt short", () => {
+    const task = createTask({ title: "Reply to the venue email" });
+    const prompt = getVoicePrompt({
+      view: "start",
+      tasks: [task],
+      session: {
+        ...createSession(),
+        state: "STUCK_REASON",
+        selectedTaskId: task.id,
+        currentAction: "Open the relevant app."
+      }
+    });
+
+    expect(prompt).toBe("What stopped you?");
   });
 });

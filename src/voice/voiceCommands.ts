@@ -90,14 +90,14 @@ export function getVoicePrompt(context: VoiceContext): string {
     case "ACTION_READY":
     case "ACTION_ACTIVE":
       return session.currentAction
-        ? `${selected ? `Task: ${selected.title}. ` : ""}Next action: ${session.currentAction} Say done, I am stuck, pause, repeat, or exit session.`
-        : "Say done, I am stuck, pause, repeat, or exit session.";
+        ? `${selected ? `Task: ${selected.title}. ` : ""}Next action: ${session.currentAction} ${actionVoiceChoices(session)}`
+        : actionVoiceChoices(session);
     case "STUCK_REASON":
-      return "What stopped you? Say cannot start, do not understand, too big, missing something, distracted, overwhelmed, afraid of doing it wrong, ran out of energy, or discovered another task.";
+      return "What stopped you?";
     case "STUCK_INTERVENTION":
       return session.currentAction
-        ? `${session.currentActionNote ?? "Here is a different route."} Next action: ${session.currentAction}. Say continue, still stuck, or pause.`
-        : "Say continue, still stuck, or pause.";
+        ? `${session.currentActionNote ?? "Here is a different route."} Next action: ${session.currentAction}. Say continue, still stuck${session.actionTimerExpiredAt ? ", or pause" : ""}.`
+        : `Say continue or still stuck${session.actionTimerExpiredAt ? ", or pause" : ""}.`;
     case "TASK_COMPLETION_CHECK":
       return "Is the task actually finished? Say yes, almost, or not sure.";
     case "TASK_COMPLETE":
@@ -163,7 +163,7 @@ function parseStateCommand(text: string, original: string, session: Session): Vo
 
     case "ACTION_READY":
     case "ACTION_ACTIVE":
-      return parseActionCommand(text, original);
+      return parseActionCommand(text, original, session);
 
     case "STUCK_REASON": {
       const discovered = extractAfter(text, ["discovered another task", "another task", "capture"]);
@@ -200,7 +200,9 @@ function parseStateCommand(text: string, original: string, session: Session): Vo
     case "STUCK_INTERVENTION":
       if (text.includes("continue") || text.includes("resume")) return sessionEvent({ type: "RESUME_ACTION" });
       if (text.includes("stuck")) return sessionEvent({ type: "STUCK" });
-      if (text.includes("pause") || text.includes("stop")) return sessionEvent({ type: "PAUSE", note: original });
+      if ((text.includes("pause") || text.includes("stop")) && session.actionTimerExpiredAt) {
+        return sessionEvent({ type: "PAUSE", note: original });
+      }
       return null;
 
     case "TASK_COMPLETION_CHECK":
@@ -235,13 +237,21 @@ function parseStateCommand(text: string, original: string, session: Session): Vo
   }
 }
 
-function parseActionCommand(text: string, original: string): VoiceCommand | null {
+function parseActionCommand(text: string, original: string, session: Session): VoiceCommand | null {
   if (matches(text, ["done", "complete", "completed", "finished", "that is done"])) {
     return sessionEvent({ type: "DONE_ACTION" });
   }
   if (text.includes("stuck") || text.includes("help")) return sessionEvent({ type: "STUCK" });
-  if (text.includes("pause") || text.includes("stop for now")) return sessionEvent({ type: "PAUSE", note: original });
+  if ((text.includes("pause") || text.includes("stop for now")) && session.actionTimerExpiredAt) {
+    return sessionEvent({ type: "PAUSE", note: original });
+  }
   return null;
+}
+
+function actionVoiceChoices(session: Session) {
+  return session.actionTimerExpiredAt
+    ? "Say done, I am stuck, pause, repeat, or exit session."
+    : "Say done, I am stuck, or repeat.";
 }
 
 function parseBlocker(text: string): BlockerId {

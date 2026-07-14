@@ -36,7 +36,7 @@ export function getStuckIntervention(reason: StuckReason, currentAction: string,
         interventionId: "return-from-distraction",
         message: "You have returned. The next action is still:",
         action: currentAction,
-        choices: ["Continue now", "Start a 3-minute focus period", "Remove the distraction", "Choose a different action"]
+        choices: ["Continue now", "Start a 180-second focus period", "Remove the distraction", "Choose a different action"]
       };
     case "overwhelmed":
       return {

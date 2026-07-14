@@ -159,7 +159,43 @@ export function transition(
     case "RESUME_ACTION":
       return { session: move(session, "ACTION_READY", now), tasks };
 
+    case "ACTION_TIMER_STARTED":
+      if (session.actionTimerEndsAt) return { session, tasks };
+      return {
+        session: {
+          ...session,
+          actionTimerStartedAt: event.startedAt,
+          actionTimerEndsAt: event.endsAt,
+          actionTimerExpiredAt: undefined,
+          actionTimerNotificationSentAt: undefined,
+          updatedAt: now.toISOString()
+        },
+        tasks
+      };
+
+    case "ACTION_TIMER_EXPIRED":
+      return {
+        session: {
+          ...session,
+          actionTimerExpiredAt: session.actionTimerExpiredAt ?? event.expiredAt,
+          interventionsUsed: addUnique(session.interventionsUsed, "action-timer-ended"),
+          updatedAt: now.toISOString()
+        },
+        tasks
+      };
+
+    case "ACTION_TIMER_NOTIFICATION_SENT":
+      return {
+        session: {
+          ...session,
+          actionTimerNotificationSentAt: session.actionTimerNotificationSentAt ?? event.sentAt,
+          updatedAt: now.toISOString()
+        },
+        tasks
+      };
+
     case "PAUSE":
+      if (hasRunningActionTimer(session, now)) return { session, tasks };
       return pauseSession(session, tasks, event.note, now);
 
     case "CAPTURE_DISCOVERED": {
@@ -247,7 +283,7 @@ function beginSelectedTask(session: Session, tasks: Task[], now: Date): Transiti
     return {
       session: move(
         {
-          ...session,
+          ...clearActionTimer(session),
           currentAction: startLadder[0],
           currentStepId: undefined,
           startLadderIndex: 0,
@@ -277,7 +313,7 @@ function setNextTaskAction(session: Session, tasks: Task[], taskId: string, now:
   return {
     session: move(
       {
-        ...session,
+        ...clearActionTimer(session),
         selectedTaskId: taskId,
         currentStepId: next.stepId,
         currentAction: next.action,
@@ -298,7 +334,7 @@ function completeCurrentAction(session: Session, tasks: Task[], now: Date): Tran
       return {
         session: move(
           {
-            ...session,
+            ...clearActionTimer(session),
             currentAction: startLadder[nextIndex],
             startLadderIndex: nextIndex,
             actionsCompleted: [...session.actionsCompleted, session.currentAction ?? startLadder[nextIndex - 1]],
@@ -338,7 +374,7 @@ function completeCurrentAction(session: Session, tasks: Task[], now: Date): Tran
     return {
       session: move(
         {
-          ...session,
+          ...clearActionTimer(session),
           actionsCompleted: completedAction ? [...session.actionsCompleted, completedAction] : session.actionsCompleted,
           currentAction: undefined,
           currentStepId: undefined,
@@ -561,6 +597,22 @@ function move(session: Session, state: SessionState, now: Date): Session {
         : [...session.stateHistory, state],
     updatedAt: now.toISOString()
   };
+}
+
+function clearActionTimer(session: Session): Session {
+  return {
+    ...session,
+    actionTimerStartedAt: undefined,
+    actionTimerEndsAt: undefined,
+    actionTimerExpiredAt: undefined,
+    actionTimerNotificationSentAt: undefined
+  };
+}
+
+function hasRunningActionTimer(session: Session, now: Date): boolean {
+  if (!session.actionTimerEndsAt || session.actionTimerExpiredAt) return false;
+  const endTime = new Date(session.actionTimerEndsAt).getTime();
+  return !Number.isNaN(endTime) && endTime > now.getTime();
 }
 
 function addUnique<T>(items: T[], item: T): T[] {

@@ -32,6 +32,10 @@ export function VoicePanel({ settings, prompt, onSettingsChange, onTranscript }:
     speak(prompt);
   }, [prompt, settings.spokenPrompts, settings.voiceMode]);
 
+  useEffect(() => {
+    if (prompt) setStatus(prompt);
+  }, [prompt]);
+
   function setVoiceMode(voiceMode: boolean) {
     onSettingsChange({
       ...settings,
