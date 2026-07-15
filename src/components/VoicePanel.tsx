@@ -13,17 +13,31 @@ type VoicePanelProps = {
 
 export function VoicePanel({ settings, prompt, onSettingsChange, onTranscript }: VoicePanelProps) {
   const [typedCommand, setTypedCommand] = useState("");
-  const [status, setStatus] = useState("Say “help me start” or “add task …”.");
+  const [status, setStatus] = useState("What is taking up space in your head?");
+  const [feedback, setFeedback] = useState("");
   const lastSpokenPrompt = useRef("");
+  const feedbackTimer = useRef<number | null>(null);
+
+  function showFeedback(message: string) {
+    setFeedback(message);
+    if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
+    feedbackTimer.current = window.setTimeout(() => setFeedback(""), 4200);
+  }
 
   const recognition = useSpeechRecognition({
     enabled: settings.voiceMode,
     continuous: settings.voiceMode,
     onFinalTranscript: (text) => {
       const response = onTranscript(text);
-      setStatus(response || `Heard: ${text}`);
+      showFeedback(response || `Heard: ${text}`);
     }
   });
+
+  useEffect(() => {
+    return () => {
+      if (feedbackTimer.current) window.clearTimeout(feedbackTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!prompt || (!settings.voiceMode && !settings.spokenPrompts)) return;
@@ -42,13 +56,13 @@ export function VoicePanel({ settings, prompt, onSettingsChange, onTranscript }:
       voiceMode,
       spokenPrompts: voiceMode ? true : settings.spokenPrompts
     });
-    setStatus(voiceMode ? "Listening. Say “repeat” if you need the prompt again." : "Voice mode is off.");
+    setStatus(voiceMode ? "Listening." : "Voice mode is off.");
   }
 
   function submitTypedCommand() {
     if (!typedCommand.trim()) return;
     const response = onTranscript(typedCommand);
-    setStatus(response || `Command: ${typedCommand}`);
+    showFeedback(response || `Command: ${typedCommand}`);
     setTypedCommand("");
   }
 
@@ -67,7 +81,7 @@ export function VoicePanel({ settings, prompt, onSettingsChange, onTranscript }:
         <div>
           <p className="voice-title">{settings.voiceMode ? "Voice mode on" : "Voice mode"}</p>
           <p className="voice-status" aria-live="polite">
-            {recognition.error || recognition.interimTranscript || recognition.lastTranscript || status}
+            {recognition.error || recognition.interimTranscript || feedback || status || recognition.lastTranscript}
           </p>
         </div>
       </div>

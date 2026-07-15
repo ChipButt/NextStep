@@ -6,7 +6,7 @@ export type VoiceCommand =
   | { type: "START_SESSION" }
   | { type: "EXIT_SESSION" }
   | { type: "NAVIGATE"; view: View }
-  | { type: "ADD_TASK"; title: string }
+  | { type: "ADD_TASK"; title: string; start?: boolean }
   | { type: "LOAD_SAMPLES" }
   | { type: "REPEAT_PROMPT" }
   | { type: "SESSION_EVENT"; event: SessionEvent };
@@ -36,9 +36,6 @@ export function parseVoiceCommand(transcript: string, context: VoiceContext): Vo
 
   if (!text) return noMatch(original, "I did not hear anything clearly.");
 
-  const addTask = extractAfter(text, ["add task", "new task", "remember", "write down", "capture task"]);
-  if (addTask) return { type: "ADD_TASK", title: sentenceCase(addTask) };
-
   if (matches(text, ["repeat", "say that again", "what was that"])) return { type: "REPEAT_PROMPT" };
   if (matches(text, ["go to start", "open start", "show start"])) return { type: "NAVIGATE", view: "start" };
   if (matches(text, ["go to tasks", "open tasks", "show tasks", "task inbox"])) return { type: "NAVIGATE", view: "tasks" };
@@ -47,10 +44,23 @@ export function parseVoiceCommand(transcript: string, context: VoiceContext): Vo
   if (matches(text, ["load sample tasks", "load samples", "sample tasks"])) return { type: "LOAD_SAMPLES" };
   if (matches(text, ["exit session", "leave session", "stop session"])) return { type: "EXIT_SESSION" };
 
+  const explicitTask = extractExplicitTaskTitle(text);
+  if (explicitTask) {
+    const command = { type: "ADD_TASK" as const, title: sentenceCase(explicitTask) };
+    return shouldStartAfterCapture(text) ? { ...command, start: true } : command;
+  }
+
   if (!session || !isLiveSessionState(state)) {
-    if (matches(text, ["help me start", "start session", "start now", "choose a task"])) {
+    const startTask = extractStartTaskTitle(text);
+    if (startTask) return { type: "ADD_TASK", title: sentenceCase(startTask), start: true };
+
+    if (matches(text, ["help me start", "help me get started", "get started", "start", "begin", "start session", "start now", "choose a task"])) {
       return { type: "START_SESSION" };
     }
+
+    const inferredTask = inferTaskTitle(text, context);
+    if (inferredTask) return { type: "ADD_TASK", title: sentenceCase(inferredTask) };
+
     return noMatch(original, "Try saying “add task” followed by the task, or “help me start”.");
   }
 
@@ -66,46 +76,46 @@ export function getVoicePrompt(context: VoiceContext): string {
 
   if (!session || !isLiveSessionState(session.state)) {
     return context.tasks.some((task) => task.status !== "completed" && task.status !== "abandoned")
-      ? "Say “help me start”, or say “add task” followed by what needs doing."
-      : "Say “add task” followed by what is taking up space in your head.";
+      ? "What do you want help starting?"
+      : "What is taking up space in your head?";
   }
 
   switch (session.state) {
     case "URGENT_CHECK":
-      return "Is there anything urgent or unsafe that must be handled now? Say yes, no, or not sure.";
+      return "Is there anything urgent or unsafe that must be handled now?";
     case "URGENT_CLARIFICATION":
       return session.inputs.immediateUrgency === "yes"
-        ? "Say the urgent task, or choose one on screen."
-        : "Is anything due today, overdue, unsafe, or blocking another person? Say yes or no.";
+        ? "What is the urgent task?"
+        : "Is anything due today, overdue, unsafe, or blocking another person?";
     case "TIME_CHECK":
-      return "How much usable time do you have? Say five, fifteen, thirty, an hour, more than an hour, or I do not know.";
+      return "How much usable time do you have?";
     case "ENERGY_CHECK":
-      return "How much energy do you have? Say very low, low, medium, or high.";
+      return "How much energy do you have?";
     case "BLOCKER_CHECK":
-      return "What is the main problem right now? You can say cannot decide, cannot start, too big, overwhelmed, distracted, cannot remember, do not understand, worried about doing it wrong, or almost no energy.";
+      return "What is the main problem right now?";
     case "TASK_CONFIRMATION":
       return selected
-        ? `I have chosen ${selected.title}. Say help me begin, choose something else, or there is a reason I cannot do this.`
+        ? `I have chosen ${selected.title}. Do you want to begin?`
         : "I could not choose a task yet.";
     case "ACTION_READY":
     case "ACTION_ACTIVE":
       return session.currentAction
-        ? `${selected ? `Task: ${selected.title}. ` : ""}Next action: ${session.currentAction} ${actionVoiceChoices(session)}`
-        : actionVoiceChoices(session);
+        ? `${selected ? `Task: ${selected.title}. ` : ""}Next action: ${session.currentAction}`
+        : "What is the next action?";
     case "STUCK_REASON":
       return "What stopped you?";
     case "STUCK_INTERVENTION":
       return session.currentAction
-        ? `${session.currentActionNote ?? "Here is a different route."} Next action: ${session.currentAction}. Say continue, still stuck${session.actionTimerExpiredAt ? ", or pause" : ""}.`
-        : `Say continue or still stuck${session.actionTimerExpiredAt ? ", or pause" : ""}.`;
+        ? `${session.currentActionNote ?? "Here is a different route."} Next action: ${session.currentAction}.`
+        : "Can you continue?";
     case "TASK_COMPLETION_CHECK":
-      return "Is the task actually finished? Say yes, almost, or not sure.";
+      return "Is the task actually finished?";
     case "TASK_COMPLETE":
-      return "Task complete. Say help me choose another task, or I am finished for now.";
+      return "Task complete. Do you want another task?";
     case "TASK_PAUSED":
-      return "Your place is saved. Say resume this task, help me start, or I am finished for now.";
+      return "Your place is saved. What do you want to do next?";
     default:
-      return "Say help me start, add task, repeat, or exit session.";
+      return "What do you need next?";
   }
 }
 
@@ -248,12 +258,6 @@ function parseActionCommand(text: string, original: string, session: Session): V
   return null;
 }
 
-function actionVoiceChoices(session: Session) {
-  return session.actionTimerExpiredAt
-    ? "Say done, I am stuck, pause, repeat, or exit session."
-    : "Say done, I am stuck, or repeat.";
-}
-
 function parseBlocker(text: string): BlockerId {
   if (text.includes("decide")) return "cannotDecide";
   if (text.includes("start")) return "cannotStart";
@@ -296,6 +300,123 @@ function normalise(value: string) {
 
 function matches(text: string, phrases: string[]) {
   return phrases.some((phrase) => text === phrase || text.includes(phrase));
+}
+
+function extractExplicitTaskTitle(text: string) {
+  const markerTitle = extractAfter(text, [
+    "add task",
+    "add a task",
+    "add this task",
+    "new task",
+    "create task",
+    "create a task",
+    "capture task",
+    "save task",
+    "task is",
+    "the task is",
+    "remember to",
+    "remind me to",
+    "write down that",
+    "write down",
+    "note down that",
+    "note down",
+    "make a note to"
+  ]);
+
+  if (markerTitle) return removeStartSuffix(markerTitle);
+
+  const patternMatches = [
+    text.match(/^(?:please\s+)?(?:can you\s+)?add\s+(.+?)(?:\s+to\s+(?:my\s+)?(?:task\s+list|tasks|list))?(?:\s+please)?$/),
+    text.match(/^(?:please\s+)?put\s+(.+?)\s+on\s+(?:my\s+)?(?:task\s+list|tasks|list)$/),
+    text.match(/^(?:please\s+)?save\s+(.+?)\s+as\s+(?:a\s+)?task$/),
+    text.match(/^(?:please\s+)?make\s+(?:a\s+)?(?:new\s+)?task\s+(?:to\s+)?(.+)$/)
+  ];
+  const patternTitle = patternMatches.find(Boolean)?.[1];
+  return patternTitle ? removeStartSuffix(patternTitle) : null;
+}
+
+function extractStartTaskTitle(text: string) {
+  if (matches(text, ["help me start", "help me get started", "get me started", "start me on"])) {
+    return extractAfter(text, [
+      "help me get started with",
+      "help me get started on",
+      "help me start with",
+      "help me start on",
+      "help me start",
+      "get me started with",
+      "get me started on",
+      "start me on"
+    ]);
+  }
+
+  const directStart = text.match(/^(?:start|begin)\s+(?!session\b|now\b)(.+)$/);
+  return directStart?.[1] ?? null;
+}
+
+function inferTaskTitle(text: string, context: VoiceContext) {
+  const taskFromNeed = extractAfter(text, [
+    "i need to",
+    "i need",
+    "need to",
+    "i have to",
+    "i've got to",
+    "i got to",
+    "got to",
+    "i should",
+    "should",
+    "i must",
+    "must",
+    "i am trying to",
+    "i'm trying to",
+    "trying to"
+  ]);
+  if (taskFromNeed) return taskFromNeed;
+
+  if (context.view !== "start" && context.view !== "tasks") return null;
+  if (!isBareTaskCandidate(text)) return null;
+  return text;
+}
+
+function isBareTaskCandidate(text: string) {
+  if (text.length < 4) return false;
+  if (matches(text, ["yes", "yeah", "yep", "no", "nope", "not sure", "repeat", "stop", "exit", "cancel"])) {
+    return false;
+  }
+  if (matches(text, ["what can you do", "how does this work", "thank you", "thanks", "hello", "hi"])) {
+    return false;
+  }
+
+  const words = text.split(" ").filter(Boolean);
+  if (words.length >= 2) return true;
+
+  return [
+    "laundry",
+    "washing",
+    "bins",
+    "dishes",
+    "email",
+    "emails",
+    "homework",
+    "admin",
+    "shopping"
+  ].includes(text);
+}
+
+function shouldStartAfterCapture(text: string) {
+  return matches(text, [
+    "and help me start",
+    "then help me start",
+    "and start it",
+    "then start it",
+    "and get started",
+    "then get started"
+  ]);
+}
+
+function removeStartSuffix(text: string) {
+  return text
+    .replace(/\s+(?:and|then)\s+(?:help me start|get started|start it|start this)$/i, "")
+    .trim();
 }
 
 function isYes(text: string) {

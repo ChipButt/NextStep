@@ -13,6 +13,42 @@ describe("voice command parser", () => {
     expect(command).toEqual({ type: "ADD_TASK", title: "Reply to sarah" });
   });
 
+  it("adds a task from conversational task-list speech", () => {
+    const command = parseVoiceCommand("can you add pay the council tax to my task list", {
+      view: "start",
+      tasks: []
+    });
+
+    expect(command).toEqual({ type: "ADD_TASK", title: "Pay the council tax" });
+  });
+
+  it("adds a task from a need statement on the start screen", () => {
+    const command = parseVoiceCommand("I need to put a load of washing on", {
+      view: "start",
+      tasks: []
+    });
+
+    expect(command).toEqual({ type: "ADD_TASK", title: "Put a load of washing on" });
+  });
+
+  it("treats a bare start-screen phrase as a task", () => {
+    const command = parseVoiceCommand("book dentist appointment", {
+      view: "start",
+      tasks: []
+    });
+
+    expect(command).toEqual({ type: "ADD_TASK", title: "Book dentist appointment" });
+  });
+
+  it("can create a task and start the help flow from one phrase", () => {
+    const command = parseVoiceCommand("help me start with cleaning the kitchen", {
+      view: "start",
+      tasks: []
+    });
+
+    expect(command).toEqual({ type: "ADD_TASK", title: "Cleaning the kitchen", start: true });
+  });
+
   it("answers a session question by voice", () => {
     const command = parseVoiceCommand("not sure", {
       view: "start",
@@ -72,5 +108,37 @@ describe("voice command parser", () => {
     });
 
     expect(prompt).toBe("What stopped you?");
+  });
+
+  it("keeps spoken session prompts to the question instead of reading all options", () => {
+    const task = createTask({ title: "Reply to the venue email" });
+    const states = [
+      "URGENT_CHECK",
+      "TIME_CHECK",
+      "ENERGY_CHECK",
+      "BLOCKER_CHECK",
+      "TASK_COMPLETION_CHECK"
+    ] as const;
+
+    const prompts = states.map((state) =>
+      getVoicePrompt({
+        view: "start",
+        tasks: [task],
+        session: {
+          ...createSession(),
+          state,
+          selectedTaskId: task.id
+        }
+      })
+    );
+
+    expect(prompts).toEqual([
+      "Is there anything urgent or unsafe that must be handled now?",
+      "How much usable time do you have?",
+      "How much energy do you have?",
+      "What is the main problem right now?",
+      "Is the task actually finished?"
+    ]);
+    expect(prompts.join(" ")).not.toMatch(/\bSay\b|You can say|yes, no|very low, low|cannot decide/);
   });
 });

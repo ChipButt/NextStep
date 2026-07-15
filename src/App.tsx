@@ -68,12 +68,20 @@ export function App() {
     dispatchSessionEvent(event);
   }
 
-  function startSession() {
+  function startSessionForTask(selectedTaskId?: string) {
     setData((current) => {
-      const result = transition(createSession(), current.tasks, { type: "START" });
+      const result = transition({ ...createSession(), selectedTaskId }, current.tasks, { type: "START" });
       return { ...current, activeSession: result.session };
     });
     setView("start");
+  }
+
+  function startSession() {
+    startSessionForTask();
+  }
+
+  function hasAvailableTasks(tasks: Task[]) {
+    return tasks.some((task) => task.status !== "completed" && task.status !== "abandoned");
   }
 
   function exitSession() {
@@ -89,6 +97,22 @@ export function App() {
       ...current,
       tasks: [...current.tasks, createTask({ title, estimatedMinutes: 15 })]
     }));
+  }
+
+  function addTaskFromVoice(title: string, start = false) {
+    setData((current) => {
+      const task = createTask({ title, estimatedMinutes: 15 });
+      const tasks = [...current.tasks, task];
+      if (!start) return { ...current, tasks };
+
+      const result = transition({ ...createSession(), selectedTaskId: task.id }, tasks, { type: "START" });
+      return {
+        ...current,
+        tasks: result.tasks,
+        activeSession: result.session
+      };
+    });
+    setView(start ? "start" : "tasks");
   }
 
   function addTaskFromDraft(draft: TaskFormDraft) {
@@ -156,6 +180,7 @@ export function App() {
 
     switch (command.type) {
       case "START_SESSION":
+        if (!hasAvailableTasks(data.tasks)) return "Tell me the task first. For example: add task call the dentist.";
         startSession();
         return "Starting.";
       case "EXIT_SESSION":
@@ -166,8 +191,8 @@ export function App() {
         setView(command.view);
         return `Opening ${command.view}.`;
       case "ADD_TASK":
-        addTaskFromTitle(command.title);
-        return `Added task: ${command.title}.`;
+        addTaskFromVoice(command.title, command.start);
+        return command.start ? `Added task: ${command.title}. Starting.` : `Added task: ${command.title}.`;
       case "LOAD_SAMPLES":
         loadSamples();
         return "Sample tasks loaded.";
